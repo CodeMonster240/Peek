@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Peek - Micromanager Compatible Todo</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+        margin: 0;
+        background: #0f1220;
+        color: #f2f4ff;
+      }
+      .layout {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 1rem;
+      }
+      .card {
+        border: 1px solid #2e3354;
+        border-radius: 12px;
+        background: #171c33;
+        padding: 1rem;
+        margin-bottom: 1rem;
+      }
+      .muted {
+        color: #b6bde6;
+      }
+      input, button, select {
+        border-radius: 8px;
+        border: 1px solid #36407b;
+        background: #11162a;
+        color: #f2f4ff;
+        padding: 0.5rem;
+      }
+      button {
+        cursor: pointer;
+      }
+      ul {
+        list-style: none;
+        padding: 0;
+      }
+      li {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 0.5rem;
+      }
+      .done {
+        text-decoration: line-through;
+        opacity: 0.6;
+      }
+      .chat {
+        max-height: 260px;
+        overflow-y: auto;
+        border: 1px solid #2e3354;
+        border-radius: 8px;
+        padding: 0.5rem;
+      }
+      .yell {
+        color: #ff8fa3;
+        font-weight: 700;
+      }
+      .controls {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="card">
+        <h1>Peek 👀</h1>
+        <p class="muted">
+          Shared todo + chat for that one person who says “just checking in 🙂” every 11 minutes.
+          Productive for teams, emotionally educational for micromanagers.
+        </p>
+        <div class="controls">
+          <button id="signin">Sign in as Default Human</button>
+          <span id="status" class="muted">Not signed in</span>
+        </div>
+        <p class="muted">Share this room: <a id="share" href="#"></a></p>
+      </div>
+
+      <div class="card">
+        <h2>Todos</h2>
+        <div class="controls">
+          <input id="todoInput" placeholder="Add todo (e.g. survive standup)" />
+          <button id="addTodo" disabled>Add</button>
+        </div>
+        <ul id="todoList"></ul>
+      </div>
+
+      <div class="card">
+        <h2>Micromanager Hotline</h2>
+        <p class="muted">Chat mode: regular check-in or theatrical YELL.</p>
+        <div class="controls">
+          <select id="chatMode">
+            <option value="say">Regular chat</option>
+            <option value="yell">YELL</option>
+          </select>
+          <input id="chatInput" placeholder="Type message" />
+          <button id="sendChat" disabled>Send</button>
+        </div>
+        <div id="chatLog" class="chat"></div>
+      </div>
+    </div>
+
+    <script>
+      const state = { signedIn: false, user: 'Default Human', roomId: '', ws: null };
+      const roomParam = new URLSearchParams(window.location.search).get('room');
+      state.roomId = roomParam || Math.random().toString(36).slice(2, 10);
+      if (!roomParam) {
+        const next = new URL(window.location.href);
+        next.searchParams.set('room', state.roomId);
+        history.replaceState({}, '', next);
+      }
+
+      const shareLink = `${window.location.origin}${window.location.pathname}?room=${state.roomId}`;
+      const shareEl = document.getElementById('share');
+      shareEl.href = shareLink;
+      shareEl.textContent = shareLink;
+
+      const signinBtn = document.getElementById('signin');
+      const status = document.getElementById('status');
+      const todoInput = document.getElementById('todoInput');
+      const addTodoBtn = document.getElementById('addTodo');
+      const todoList = document.getElementById('todoList');
+      const chatMode = document.getElementById('chatMode');
+      const chatInput = document.getElementById('chatInput');
+      const sendChatBtn = document.getElementById('sendChat');
+      const chatLog = document.getElementById('chatLog');
+
+      function connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        state.ws = new WebSocket(`${protocol}://${window.location.host}`);
+
+        state.ws.addEventListener('open', () => {
+          state.ws.send(JSON.stringify({ type: 'join', roomId: state.roomId, user: state.user }));
+        });
+
+        state.ws.addEventListener('message', (event) => {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'snapshot') {
+            renderTodos(payload.todos);
+            renderChat(payload.chat);
+          }
+        });
+      }
+
+      function send(payload) {
+        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+          return;
+        }
+        state.ws.send(JSON.stringify(payload));
+      }
+
+      function renderTodos(todos) {
+        todoList.innerHTML = '';
+        for (const todo of todos) {
+          const li = document.createElement('li');
+
+          const toggle = document.createElement('input');
+          toggle.type = 'checkbox';
+          toggle.checked = todo.done;
+          toggle.addEventListener('change', () => send({ type: 'todo:toggle', todoId: todo.id }));
+
+          const text = document.createElement('span');
+          text.textContent = `${todo.text} — ${todo.author}`;
+          text.className = todo.done ? 'done' : '';
+
+          const del = document.createElement('button');
+          del.textContent = 'Delete';
+          del.addEventListener('click', () => send({ type: 'todo:delete', todoId: todo.id }));
+
+          li.append(toggle, text, del);
+          todoList.appendChild(li);
+        }
+      }
+
+      function renderChat(chat) {
+        chatLog.innerHTML = '';
+        for (const message of chat) {
+          const row = document.createElement('div');
+          row.className = message.mode === 'yell' ? 'yell' : '';
+          row.textContent = `${message.user}: ${message.mode === 'yell' ? message.text.toUpperCase() : message.text}`;
+          chatLog.appendChild(row);
+        }
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      signinBtn.addEventListener('click', () => {
+        if (!state.signedIn) {
+          state.signedIn = true;
+          status.textContent = `Signed in as ${state.user}`;
+          addTodoBtn.disabled = false;
+          sendChatBtn.disabled = false;
+          connect();
+        }
+      });
+
+      addTodoBtn.addEventListener('click', () => {
+        const text = todoInput.value.trim();
+        if (!text) return;
+        send({ type: 'todo:add', text });
+        todoInput.value = '';
+      });
+
+      sendChatBtn.addEventListener('click', () => {
+        const text = chatInput.value.trim();
+        if (!text) return;
+        send({ type: 'chat', mode: chatMode.value, text });
+        chatInput.value = '';
+      });
+    </script>
+  </body>
+</html>

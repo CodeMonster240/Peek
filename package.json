@@ -1,0 +1,21 @@
+{
+  "name": "peek",
+  "version": "1.0.0",
+  "description": "A todo list for micromanagers",
+  "main": "server.js",
+  "scripts": {
+    "test": "node --test",
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "http://localhost:26831/CodeMonster240/Peek"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.3.0",
+    "ws": "^8.22.1"
+  }
+}
